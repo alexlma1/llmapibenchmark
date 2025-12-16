@@ -1,9 +1,11 @@
-package utils
+package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -66,4 +68,48 @@ func SaveResultsToMD(results [][]interface{}, modelName string, inputTokens int,
 	}
 
 	fmt.Printf("Results saved to: %s\n\n", filename)
+}
+
+// SaveModelOutputs saves the model generation outputs to a JSON file.
+// Each concurrency level and its corresponding outputs are stored with metadata.
+func SaveModelOutputs(outputs []string, modelName string, concurrency int, timestamp time.Time) (string, error) {
+	// Create outputs directory if it doesn't exist
+	outputDir := "model_outputs"
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Sanitize model name for filename
+	safeModelName := strings.ReplaceAll(modelName, "/", "_")
+	safeModelName = strings.ReplaceAll(safeModelName, "\\", "_")
+	safeModelName = strings.TrimSpace(safeModelName)
+	if safeModelName == "" {
+		safeModelName = "model"
+	}
+
+	// Create filename with timestamp and concurrency level
+	timeStr := timestamp.Format("2006-01-02_15-04-05")
+	filename := filepath.Join(outputDir, fmt.Sprintf("%s_concurrency_%d_%s.json", safeModelName, concurrency, timeStr))
+
+	// Create output data structure
+	data := map[string]interface{}{
+		"model_name":  modelName,
+		"concurrency": concurrency,
+		"timestamp":   timestamp.UTC(),
+		"outputs":     outputs,
+		"count":       len(outputs),
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(filename, jsonData, 0644); err != nil {
+		return "", fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	return filename, nil
 }
