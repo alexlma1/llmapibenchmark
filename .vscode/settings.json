@@ -1,0 +1,11 @@
+{
+    "github.copilot.chat.codesearch.enabled": true,
+    "github.copilot.chat.completionsFetcher": "",
+    "github.copilot.chat.languageContext.typescript.includeDocumentation": true,
+    "github.copilot.chat.languageContext.typescript.enabled": true,
+    "github.copilot.chat.newWorkspace.useContext7": true,
+    "github.copilot.chat.notebook.enhancedNextEditSuggestions.enabled": true,
+    "github.copilot.chat.notebook.followCellExecution.enabled": true,
+    "github.copilot.chat.tools.memory.enabled": true,
+    "python.analysis.aiHoverSummaries": true
+}

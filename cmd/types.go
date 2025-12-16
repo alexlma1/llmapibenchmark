@@ -1,6 +1,6 @@
 package main
 
-import "github.com/Yoosu-L/llmapibenchmark/internal/utils"
+import "llmapibenchmark/internal/utils"
 
 type Benchmark struct {
 	BaseURL           string

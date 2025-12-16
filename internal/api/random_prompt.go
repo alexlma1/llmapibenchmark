@@ -42,3 +42,9 @@ func generateRandomPhrase(numWords int) string {
 
 	return result
 }
+
+// GenerateRandomPhrase returns a randomly generated prompt containing roughly numWords words.
+// This is exported so callers (e.g. benchmarks) can store the prompt alongside the model output.
+func GenerateRandomPhrase(numWords int) string {
+	return generateRandomPhrase(numWords)
+}

@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Yoosu-L/llmapibenchmark/internal/utils"
+	"llmapibenchmark/internal/utils"
+
 	"github.com/schollz/progressbar/v3"
 )
 

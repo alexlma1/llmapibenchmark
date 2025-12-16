@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/Yoosu-L/llmapibenchmark/internal/api"
-	"github.com/Yoosu-L/llmapibenchmark/internal/utils"
-	"github.com/sashabaranov/go-openai"
+	"llmapibenchmark/internal/api"
+	"llmapibenchmark/internal/utils"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 	"github.com/spf13/pflag"
 )
 
@@ -56,8 +58,11 @@ func main() {
 	if *baseURL == "" {
 		log.Fatalf("--base-url is required")
 	}
-	config := openai.DefaultConfig(*apiKey)
-	config.BaseURL = *baseURL
+
+	// Prepare client options
+	var clientOpts []option.RequestOption
+	clientOpts = append(clientOpts, option.WithAPIKey(*apiKey))
+	clientOpts = append(clientOpts, option.WithBaseURL(*baseURL))
 
 	if *insecureSkipTLSVerify {
 		fmt.Fprintln(os.Stderr, "\n/!\\ WARNING: Skipping TLS certificate verification. This is insecure and should not be used in production. /!\\")
@@ -69,10 +74,11 @@ func main() {
 		}
 		tr := defaultTransport.Clone()
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		config.HTTPClient = &http.Client{Transport: tr}
+		httpClient := &http.Client{Transport: tr}
+		clientOpts = append(clientOpts, option.WithHTTPClient(httpClient))
 	}
 
-	client := openai.NewClientWithConfig(config)
+	client := openai.NewClient(clientOpts...)
 
 	// Discover model name if not provided
 	if *model == "" {
@@ -95,13 +101,13 @@ func main() {
 
 	// Get input tokens
 	if benchmark.UseRandomInput {
-		_, _, promptTokens, err := api.AskOpenAiRandomInput(client, benchmark.ModelName, *numWords/4, 4, nil)
+		_, _, _, promptTokens, err := api.AskOpenAiRandomInput(client, benchmark.ModelName, benchmark.NumWords, 4, nil)
 		if err != nil {
 			log.Fatalf("Error getting prompt tokens: %v", err)
 		}
 		benchmark.InputTokens = promptTokens
 	} else {
-		_, _, promptTokens, err := api.AskOpenAi(client, benchmark.ModelName, *prompt, 4, nil)
+		_, _, _, promptTokens, err := api.AskOpenAi(client, benchmark.ModelName, *prompt, 4, nil)
 		if err != nil {
 			log.Fatalf("Error getting prompt tokens: %v", err)
 		}

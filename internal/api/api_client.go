@@ -2,78 +2,72 @@ package api
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go"
 	"github.com/schollz/progressbar/v3"
 )
 
 // AskOpenAi sends a prompt to the OpenAI API, processes the response stream and returns stats on it.
-func AskOpenAi(client *openai.Client, model string, prompt string, maxTokens int, bar *progressbar.ProgressBar) (float64, int, int, error) {
+// Returns: timeToFirstToken (seconds), completionTokens, promptTokens, error
+func AskOpenAi(client openai.Client, model string, prompt string, maxTokens int, bar *progressbar.ProgressBar) (string, float64, int, int, error) {
 	start := time.Now()
 
 	var (
 		timeToFirstToken   float64
 		firstTokenSeen     bool
-		lastUsage          *openai.Usage
 		accumulatedContent string // Accumulate all content to count tokens more accurately
 		estimatedTokens    int    // Real-time token estimation
+		promptTokens       int
+		completionTokens   int
 	)
 
-	stream, err := client.CreateChatCompletionStream(
+	// Create streaming request to the OpenAI API
+	stream := client.Chat.Completions.NewStreaming(
 		context.Background(),
-		openai.ChatCompletionRequest{
-			Model: model,
-			Messages: []openai.ChatCompletionMessage{
-				{
-					Role:    openai.ChatMessageRoleUser,
-					Content: prompt,
-				},
+		openai.ChatCompletionNewParams{
+			Model: openai.ChatModel(model),
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(prompt),
 			},
-			// Add the deprecated `MaxTokens` for backward compatibility with some older API servers.
-			MaxTokens:           maxTokens,
-			MaxCompletionTokens: maxTokens,
-			Temperature:         1,
-			Stream:              true,
-			StreamOptions: &openai.StreamOptions{
-				IncludeUsage: true,
+			MaxTokens:   openai.Int(int64(maxTokens)),
+			Temperature: openai.Float(1.0),
+			StreamOptions: openai.ChatCompletionStreamOptionsParam{
+				IncludeUsage: openai.Bool(true),
 			},
 		},
 	)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("OpenAI API request failed: %w", err)
-	}
-	defer stream.Close()
 
-	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return 0, 0, 0, fmt.Errorf("stream error: %w", err)
+	// Process the stream
+	for stream.Next() {
+		event := stream.Current()
+
+		// Check for usage information (it's only sent on the final message)
+		if event.Usage.PromptTokens > 0 || event.Usage.CompletionTokens > 0 {
+			promptTokens = int(event.Usage.PromptTokens)
+			completionTokens = int(event.Usage.CompletionTokens)
 		}
 
-		if !firstTokenSeen && len(resp.Choices) > 0 {
-			content := resp.Choices[0].Delta.Content
-			if strings.TrimSpace(content) != "" {
-				timeToFirstToken = time.Since(start).Seconds()
-				firstTokenSeen = true
+		// Process content from choices
+		if len(event.Choices) > 0 {
+			choice := event.Choices[0]
+
+			// Track time to first token
+			if !firstTokenSeen && choice.Delta.Content != "" {
+				if strings.TrimSpace(choice.Delta.Content) != "" {
+					timeToFirstToken = time.Since(start).Seconds()
+					firstTokenSeen = true
+				}
 			}
-		}
 
-		// Process each chunk, accumulating to response content
-		if len(resp.Choices) > 0 {
-			content := resp.Choices[0].Delta.Content
-			if content != "" {
-				accumulatedContent += content
+			// Accumulate content and estimate tokens
+			if choice.Delta.Content != "" {
+				accumulatedContent += choice.Delta.Content
 
 				// Estimate number of tokens in current chunk
-				newTokens := estimateTokens(content)
+				newTokens := estimateTokens(choice.Delta.Content)
 				estimatedTokens += newTokens
 
 				if bar != nil {
@@ -81,33 +75,28 @@ func AskOpenAi(client *openai.Client, model string, prompt string, maxTokens int
 				}
 			}
 		}
-
-		if resp.Usage != nil {
-			lastUsage = resp.Usage
-		}
 	}
 
-	var promptTokens, completionTokens int
-	if lastUsage != nil {
-		promptTokens = lastUsage.PromptTokens
-		completionTokens = lastUsage.CompletionTokens
+	// Check for errors during streaming
+	if err := stream.Err(); err != nil {
+		return "", 0, 0, 0, fmt.Errorf("stream error: %w", err)
+	}
 
-		// Final adjustment: if we have actual completion tokens, adjust the progress bar
-		if bar != nil && completionTokens > 0 {
-			diff := completionTokens - estimatedTokens
-			if diff != 0 { // Could be positive or negative
-				bar.Add(diff)
-			}
-		}
-	} else {
-		// If no usage info, use our estimated tokens as completion tokens
+	// If we got usage info from the stream, use it; otherwise use estimated tokens
+	if completionTokens == 0 {
 		completionTokens = estimatedTokens
+	} else if bar != nil && completionTokens > 0 {
+		// Final adjustment: if we have actual completion tokens, adjust the progress bar
+		diff := completionTokens - estimatedTokens
+		if diff != 0 { // Could be positive or negative
+			bar.Add(diff)
+		}
 	}
 
-	return timeToFirstToken, completionTokens, promptTokens, nil
+	return accumulatedContent, timeToFirstToken, completionTokens, promptTokens, nil
 }
 
-func AskOpenAiRandomInput(client *openai.Client, model string, numWords int, maxTokens int, bar *progressbar.ProgressBar) (float64, int, int, error) {
+func AskOpenAiRandomInput(client openai.Client, model string, numWords int, maxTokens int, bar *progressbar.ProgressBar) (string, float64, int, int, error) {
 	prompt := generateRandomPhrase(numWords)
 	return AskOpenAi(client, model, prompt, maxTokens, bar)
 }
@@ -139,15 +128,17 @@ func estimateTokens(content string) int {
 }
 
 // GetFirstAvailableModel retrieves the first available model from the OpenAI API.
-func GetFirstAvailableModel(client *openai.Client) (string, error) {
-	modelList, err := client.ListModels(context.Background())
+func GetFirstAvailableModel(client openai.Client) (string, error) {
+	// List models from the API
+	modelList, err := client.Models.List(context.Background())
 	if err != nil {
 		return "", fmt.Errorf("failed to list models: %w", err)
 	}
 
-	if len(modelList.Models) == 0 {
+	// Check if there are any models available
+	if len(modelList.Data) == 0 {
 		return "", fmt.Errorf("no models available")
 	}
 
-	return modelList.Models[0].ID, nil
+	return modelList.Data[0].ID, nil
 }

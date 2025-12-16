@@ -6,9 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Yoosu-L/llmapibenchmark/internal/api"
+	"llmapibenchmark/internal/api"
 
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 	"github.com/schollz/progressbar/v3"
 )
 
@@ -25,12 +26,14 @@ type SpeedMeasurement struct {
 }
 
 type SpeedResult struct {
-	Concurrency      int     `json:"concurrency" yaml:"concurrency"`
-	GenerationSpeed  float64 `json:"generation_speed" yaml:"generation-speed"`
-	PromptThroughput float64 `json:"prompt_throughput" yaml:"prompt-throughput"`
-	MaxTtft          float64 `json:"max_ttft" yaml:"max-ttft"`
-	MinTtft          float64 `json:"min_ttft" yaml:"min-ttft"`
-	SuccessRate      float64 `json:"success_rate" yaml:"success-rate"`
+	Concurrency      int      `json:"concurrency" yaml:"concurrency"`
+	GenerationSpeed  float64  `json:"generation_speed" yaml:"generation-speed"`
+	PromptThroughput float64  `json:"prompt_throughput" yaml:"prompt-throughput"`
+	MaxTtft          float64  `json:"max_ttft" yaml:"max-ttft"`
+	MinTtft          float64  `json:"min_ttft" yaml:"min-ttft"`
+	SuccessRate      float64  `json:"success_rate" yaml:"success-rate"`
+	Prompts          []string `json:"prompts,omitempty" yaml:"prompts,omitempty"`
+	Outputs          []string `json:"outputs,omitempty" yaml:"outputs,omitempty"`
 }
 
 func roundToTwoDecimals(f float64) float64 {
@@ -39,14 +42,19 @@ func roundToTwoDecimals(f float64) float64 {
 
 // Run measures API generation throughput and TTFT.
 func (setup *SpeedMeasurement) Run(bar *progressbar.ProgressBar) (SpeedResult, error) {
-	config := openai.DefaultConfig(setup.ApiKey)
-	config.BaseURL = setup.BaseUrl
-	client := openai.NewClientWithConfig(config)
+	// Create OpenAI client with custom base URL
+	clientOpts := []option.RequestOption{
+		option.WithAPIKey(setup.ApiKey),
+		option.WithBaseURL(setup.BaseUrl),
+	}
+	client := openai.NewClient(clientOpts...)
 
 	var wg sync.WaitGroup
 	var responseTokens sync.Map
 	var promptTokens sync.Map
 	var ttfts sync.Map
+	var prompts sync.Map
+	var outputs sync.Map
 	var successfulRequests atomic.Int32
 	var failedRequests atomic.Int32
 
@@ -60,10 +68,15 @@ func (setup *SpeedMeasurement) Run(bar *progressbar.ProgressBar) (SpeedResult, e
 			var ttft float64
 			var completionTokens, inputTokens int
 			var err error
+			var accumulatedContent string
+			var promptUsed string
+
 			if setup.UseRandomInput {
-				ttft, completionTokens, inputTokens, err = api.AskOpenAiRandomInput(client, setup.ModelName, setup.NumWords, setup.MaxTokens, bar)
+				promptUsed = api.GenerateRandomPhrase(setup.NumWords)
+				accumulatedContent, ttft, completionTokens, inputTokens, err = api.AskOpenAi(client, setup.ModelName, promptUsed, setup.MaxTokens, bar)
 			} else {
-				ttft, completionTokens, inputTokens, err = api.AskOpenAi(client, setup.ModelName, setup.Prompt, setup.MaxTokens, bar)
+				promptUsed = setup.Prompt
+				accumulatedContent, ttft, completionTokens, inputTokens, err = api.AskOpenAi(client, setup.ModelName, setup.Prompt, setup.MaxTokens, bar)
 			}
 			if err != nil {
 				failedRequests.Add(1)
@@ -73,6 +86,8 @@ func (setup *SpeedMeasurement) Run(bar *progressbar.ProgressBar) (SpeedResult, e
 			ttfts.Store(index, ttft)
 			responseTokens.Store(index, completionTokens)
 			promptTokens.Store(index, inputTokens)
+			prompts.Store(index, promptUsed)
+			outputs.Store(index, accumulatedContent)
 		}(i)
 	}
 
@@ -94,6 +109,16 @@ func (setup *SpeedMeasurement) Run(bar *progressbar.ProgressBar) (SpeedResult, e
 
 	measurement := SpeedResult{}
 	measurement.Concurrency = setup.Concurrency
+	measurement.Prompts = make([]string, setup.Concurrency)
+	measurement.Outputs = make([]string, setup.Concurrency)
+	for i := 0; i < setup.Concurrency; i++ {
+		if v, ok := prompts.Load(i); ok {
+			measurement.Prompts[i] = v.(string)
+		}
+		if v, ok := outputs.Load(i); ok {
+			measurement.Outputs[i] = v.(string)
+		}
+	}
 
 	// Calculate success rate
 	totalRequests := setup.Concurrency
