@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"time"
 
 	"llmapibenchmark/internal/utils"
 
@@ -117,6 +119,15 @@ func (benchmark *Benchmark) measureSpeed(latency float64, concurrency int, clear
 	result, err := speedMeasurement.Run(bar)
 	if err != nil {
 		return result, fmt.Errorf("measurement error: %v", err)
+	}
+
+	if benchmark.SaveOutputs {
+		filename, saveErr := utils.SaveModelOutputs(result.Outputs, benchmark.ModelName, concurrency, time.Now())
+		if saveErr != nil {
+			log.Printf("failed to save model outputs (model=%s concurrency=%d): %v", benchmark.ModelName, concurrency, saveErr)
+		} else {
+			log.Printf("saved model outputs to: %s", filename)
+		}
 	}
 
 	bar.Finish()

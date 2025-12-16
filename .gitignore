@@ -1,6 +1,11 @@
 ## result
 **/API_Throughput_*.md
-
+build/
 ## build
 llmapibenchmark_linux_amd64
 llmapibenchmark_windows_amd64.exe
+llmapibenchmark_darwin_arm64
+llmapibenchmark_darwin_amd64
+default-prompt.txt
+model_outputs/
+llmapibenchmark_*

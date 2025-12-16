@@ -12,6 +12,7 @@ type Benchmark struct {
 	ConcurrencyLevels []int
 	UseRandomInput    bool
 	NumWords          int
+	SaveOutputs       bool
 }
 
 type BenchmarkResult struct {

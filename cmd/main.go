@@ -28,6 +28,7 @@ func main() {
 	concurrencyStr := pflag.StringP("concurrency", "c", "1,2,4,8,16,32,64,128", "Comma-separated list of concurrency levels")
 	maxTokens := pflag.IntP("max-tokens", "t", 512, "Maximum number of tokens to generate")
 	format := pflag.StringP("format", "f", "", "Output format (optional)")
+	saveOutputs := pflag.Bool("save-outputs", false, "Save per-request model outputs to JSON files under ./model_outputs/")
 	help := pflag.BoolP("help", "h", false, "Show this help message")
 	insecureSkipTLSVerify := pflag.Bool("insecure-skip-tls-verify", false, "Skip TLS certificate verification. Use with caution, this is insecure.")
 	pflag.Parse()
@@ -46,6 +47,7 @@ func main() {
 	benchmark.Prompt = *prompt
 	benchmark.NumWords = *numWords
 	benchmark.MaxTokens = *maxTokens
+	benchmark.SaveOutputs = *saveOutputs
 
 	// Parse concurrency levels
 	concurrencyLevels, err := utils.ParseConcurrencyLevels(*concurrencyStr)
