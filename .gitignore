@@ -9,3 +9,6 @@ llmapibenchmark_darwin_amd64
 default-prompt.txt
 model_outputs/
 llmapibenchmark_*
+.vscode/
+.github/
+
