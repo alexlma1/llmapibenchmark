@@ -32,8 +32,8 @@ func AskOpenAi(client openai.Client, model string, prompt string, maxTokens int,
 			Messages: []openai.ChatCompletionMessageParamUnion{
 				openai.UserMessage(prompt),
 			},
-			MaxTokens:   openai.Int(int64(maxTokens)),
-			Temperature: openai.Float(1.0),
+			MaxCompletionTokens: openai.Int(int64(maxTokens)),
+			Temperature:         openai.Float(1.0),
 			StreamOptions: openai.ChatCompletionStreamOptionsParam{
 				IncludeUsage: openai.Bool(true),
 			},
